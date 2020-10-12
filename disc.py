@@ -28,7 +28,7 @@ class disc:
 
 	def gw_loop(self, func):
 		identify = { "op":2, "d": { "token": self.token, "intents": 513, "properties": { "$os": "linux", "$browser": "my_library", "$device": "my_library" } } }
-		resume = {"op": 6, "d": { "token": self.token, "session_id": "", "seq": 1337} }
+		resume = {"op": 6, "d": { "token": self.token, "session_id": "", "seq": 0} }
 		url = self.get('gateway').url
 		self.last_sequence = 0
 		self.heartbeat_interval=0
@@ -39,12 +39,13 @@ class disc:
 			print('gw error: ',error)
 
 		def on_close(ws):
-			None
+			print('on_close')
 
 		def on_open(ws):
 			print('on_open')
 			if self.session_id:
 				resume['session_id'] = self.session_id
+				resume['seq'] = self.last_sequence
 				ws.send(json.dumps(resume))
 			else:
 				ws.send(json.dumps(identify))
