@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import requests,json,time,random,os,traceback,sys,websocket
+import requests,json,time,random,os,traceback,sys,websocket,threading
 from utils import *
 
 
@@ -28,9 +28,12 @@ class disc:
 
 	def gw_loop(self, func):
 		identify = { "op":2, "d": { "token": self.token, "intents": 513, "properties": { "$os": "linux", "$browser": "my_library", "$device": "my_library" } } }
-		session_id = ''
 		resume = {"op": 6, "d": { "token": self.token, "session_id": "", "seq": 1337} }
 		url = self.get('gateway').url
+		self.last_sequence = 0
+		self.heartbeat_interval=0
+		self.session_id = ''
+		heartbeat_time = 0
 
 		def on_error(ws, error):
 			print('gw error: ',error)
@@ -39,8 +42,9 @@ class disc:
 			None
 
 		def on_open(ws):
-			if session_id:
-				resume['session_id'] = session_id
+			print('on_open')
+			if self.session_id:
+				resume['session_id'] = self.session_id
 				ws.send(json.dumps(resume))
 			else:
 				ws.send(json.dumps(identify))
@@ -48,17 +52,39 @@ class disc:
 		def on_message(ws, message):
 			try:
 				resp=D(json.loads(str(message)))
+				if not resp.s: last_sequence = 0
+				else: last_sequence = resp.s
+
 				if 't' in resp._dict.keys() and resp.t == 'READY':
 					self.id = resp.d.user.id
 					session_id = resp.d.session_id
+				elif resp.op == 10:
+					self.heartbeat_interval = int(resp.d.heartbeat_interval)/1000
 				elif not ('MESSAGE' in resp.t and resp.d.author.id == self.id ):
 					func(resp)
 			except Exception as e:
-				None
 				print(e)
 
 		ws = websocket.WebSocketApp(url, on_message = on_message, on_error = on_error, on_close = on_close)
 		ws.on_open = on_open
 
+		def loop(ws):
+			while True:
+				try:
+					ws.run_forever()
+				except Excption as e:
+					print('loop error '+str(e))
+
+		wst = threading.Thread(target=loop, args=(ws,))
+		wst.daemon = True
+		wst.start()
+
 		while True:
-			ws.run_forever()
+			if self.heartbeat_interval and time.time() - heartbeat_time >= self.heartbeat_interval:
+				if ws.sock.connected:
+					hb=json.dumps({'op':1, 'd':self.last_sequence})
+					print('sending heartbeat: '+hb)
+					heartbeat_time = time.time()
+					ws.send(hb)
+
+			time.sleep(0.01)
